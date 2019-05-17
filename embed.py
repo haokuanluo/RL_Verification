@@ -47,26 +47,25 @@ def transform(sentence):
     sentence = sentence.replace("'", " ")
     return sentence
 
-def embed_sentence(sentence):
-    sentence = transform(sentence)
-    sentence = embed(sentence)
-    return sentence
+def embed_sentence(sentence,maxlen):
+    #sentence = transform(sentence)
+    #sentence = embed(sentence)
+    seq_tensor = torch.zeros(( len(sentence),maxlen, embed_dim)).float()
+    for i in range(len(sentence)):
+        print(sentence[i])
+        emb = embed(transform(sentence[i]))
+        seq_tensor[i, :len(emb), :] = to_torch(np.array(emb))
+    return seq_tensor
 
-def embed_and_pad(df,idx):
-    x=[]
-    y=df.loc[idx,['review/appearance','review/aroma','review/overall','review/palate','review/taste']].values
-    maxlen = 0
-    for i in idx:
-        embedded = embed(df.loc[i,'review/text'])
-        maxlen = max(maxlen,len(embedded))
-        x.append(embedded)
-    seq_tensor = torch.zeros((len(idx), maxlen, embed_dim)).float()
-    for i in range(len(idx)):
+def embed_and_pad(x,y,maxlen):
+    x=embed_sentence(x,maxlen)
+    seq_tensor = torch.zeros((len(x), maxlen, embed_dim)).float()
+    for i in range(len(x)):
         seq_tensor[i,:len(x[i]),:]=to_torch(np.array(x[i]))
     seq_lengths = torch.LongTensor([len(seq) for seq in x])
     seq_lengths, perm_idx = seq_lengths.sort(0, descending=True)
     seq_tensor = seq_tensor[perm_idx]
-    y = y[perm_idx,:]
+    y = y[perm_idx]
     seq_tensor = seq_tensor.transpose(0,1)
     y = to_torch(y)
     return seq_tensor, y, seq_lengths, perm_idx
