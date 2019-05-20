@@ -17,7 +17,7 @@ def to_torch(x, dtype='float', req = False):
 
 
 embed_dim = 300
-def embed(words):
+def embed(words,maxlen):
     if(type(words)!=str):
 
         list = []
@@ -35,6 +35,8 @@ def embed(words):
 
         except:
             pass
+        if len(list)==maxlen:
+            return list
     return list
 
 
@@ -52,20 +54,23 @@ def embed_sentence(sentence,maxlen):
     #sentence = embed(sentence)
     seq_tensor = torch.zeros(( len(sentence),maxlen, embed_dim)).float()
     for i in range(len(sentence)):
-        print(sentence[i])
-        emb = embed(transform(sentence[i]))
+        #print(sentence[i])
+        emb = embed(transform(sentence[i]),maxlen)
+        #print(len(emb))
+        if len(emb)==0:
+            continue
         seq_tensor[i, :len(emb), :] = to_torch(np.array(emb))
     return seq_tensor
 
-def embed_and_pad(x,y,maxlen):
+def embed_and_pad(x,y,maxlen,dtype='float'):
     x=embed_sentence(x,maxlen)
     seq_tensor = torch.zeros((len(x), maxlen, embed_dim)).float()
     for i in range(len(x)):
         seq_tensor[i,:len(x[i]),:]=to_torch(np.array(x[i]))
-    seq_lengths = torch.LongTensor([len(seq) for seq in x])
+    seq_lengths = torch.LongTensor([maxlen for seq in x])#torch.LongTensor([len(seq) for seq in x])
     seq_lengths, perm_idx = seq_lengths.sort(0, descending=True)
     seq_tensor = seq_tensor[perm_idx]
     y = y[perm_idx]
     seq_tensor = seq_tensor.transpose(0,1)
-    y = to_torch(y)
+    y = to_torch(y,dtype)
     return seq_tensor, y, seq_lengths, perm_idx

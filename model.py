@@ -98,22 +98,14 @@ class SeqLSTMClassify(nn.Module):
         self.dropout = nn.Dropout(args['dropout'])
 
 
-        self.fc = nn.Linear(args['hidden_size'], out_dim)
-        self.criterion = nn.MSELoss()
+        self.fc = nn.Linear(args['hidden_size']*2, out_dim)
+        self.criterion = nn.NLLLoss()
         self.opt = torch.optim.Adam(self.parameters(), lr=0.001)
 
-
-
-
-    def forward(self, inputs, labels):
-        # inputs:
-        # - ids: seq len x batch, sorted in descending order by length
-        #     each row: <S>, first word, ..., last word, </S>
-        # - lengths: batch
-
+    def lstm(self,inputs):
         embs, lengths = inputs
         # Remove <S> from each sequence
-        #embs = self.emb(ids[1:])
+        # embs = self.emb(ids[1:])
 
         enc_embs_packed = pack_padded_sequence(
             embs, lengths)
@@ -123,23 +115,37 @@ class SeqLSTMClassify(nn.Module):
 
         # last_enc shape: batch x emb
         last_enc = enc_output[lengths - 1, torch.arange(lengths.shape[0])]
-        results = self.fc(self.dropout(last_enc))
+        return last_enc
 
+
+    def forward(self, inputs, labels):
+        # inputs:
+        # - ids: seq len x batch, sorted in descending order by length
+        #     each row: <S>, first word, ..., last word, </S>
+        # - lengths: batch
+        claim,evidence = inputs
+
+        emb1 = self.lstm(claim)
+        emb2 = self.lstm(evidence)
+        res = torch.cat((emb1,emb2),1)
+
+
+        results = self.fc(self.dropout(res))
         loss = self.criterion(results, labels)
 
 
 
-        return enc_state, results, loss
+        return results, loss
 
     def learn_once(self,inputs,labels): # inputs = embs,lengths
         self.opt.zero_grad()
-        enc_state, results, loss = self.forward(inputs, labels)
+        results, loss = self.forward(inputs, labels)
         loss.backward()
         self.opt.step()
         return loss
 
     def predict(self,inputs,labels,perm_idx):
-        enc_state, results, loss = self.forward(inputs, labels)
+        results, loss = self.forward(inputs, labels)
         _, unperm_idx = perm_idx.sort(0)
         results = results[unperm_idx]
         return results.data.cpu().numpy()
