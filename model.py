@@ -8,6 +8,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import Variable
 import time
+from sklearn.metrics.pairwise import cosine_similarity
+
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from embed import embed_and_pad
 
@@ -50,6 +52,15 @@ class CNN1(nn.Module):
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return F.log_softmax(x, dim=1)
+
+    def forward(self,x):
+        x = F.relu(F.max_pool2d(self.conv1(x), 2))
+        x = F.relu(F.max_pool2d(self.conv2(x), 2))
+        x = x.view(-1, self.siz)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+        #return F.log_softmax(x, dim=1)
 
     def learn_once(self, X_sub, Y_sub):
         X_sub = to_torch(X_sub, "float").view(-1, self.ch, self.h, self.w)
@@ -127,6 +138,7 @@ class SeqLSTMClassify(nn.Module):
 
         emb1 = self.lstm(claim)
         emb2 = self.lstm(evidence)
+
         res = torch.cat((emb1,emb2),1)
 
 
@@ -176,6 +188,88 @@ def train(x,y,maxlen,EPOCH=1):
 
 
     return model
+
+class LSTMCNN(nn.Module):
+    def __init__(self, args, out_dim):
+        super(LSTMCNN,self).__init__()
+
+        self.encoder = nn.LSTM(
+            input_size=args['emb_size'],
+            hidden_size=args['hidden_size'],
+            num_layers=args['num_layers'],
+            dropout=args['dropout'])
+
+        self.dropout = nn.Dropout(args['dropout'])
+        self.cnn = CNN1(2, 50, 50)
+
+        self.fc = nn.Linear(args['hidden_size']*2+2, out_dim)
+        self.criterion = nn.NLLLoss()
+        self.opt = torch.optim.Adam(self.parameters(), lr=0.001)
+        self.cos=nn.CosineSimilarity(dim=0)
+
+    def lstm(self,inputs):
+        embs, lengths = inputs
+        # Remove <S> from each sequence
+        # embs = self.emb(ids[1:])
+
+        enc_embs_packed = pack_padded_sequence(
+            embs, lengths)
+
+        enc_output_packed, enc_state = self.encoder(enc_embs_packed)
+        enc_output, lengths = pad_packed_sequence(enc_output_packed)
+
+        # last_enc shape: batch x emb
+        last_enc = enc_output#[lengths - 1, torch.arange(lengths.shape[0])]
+        return last_enc
+
+
+    def forward(self, inputs, labels):
+        # inputs:
+        # - ids: seq len x batch, sorted in descending order by length
+        #     each row: <S>, first word, ..., last word, </S>
+        # - lengths: batch
+        claim,evidence = inputs
+
+        emb1 = self.lstm(claim)
+        emb2 = self.lstm(evidence)
+        print(emb1.shape,emb2.shape)
+
+
+        emb1 = emb1.transpose(0, 1)
+        emb2 = emb2.transpose(0, 1)
+        print("rn",emb1.shape, emb2.shape)  # 64,50,128 ->  batch size,sent length, emb dim
+        mat = torch.zeros([emb1.shape[0],1,emb1.shape[1],emb2.shape[1]])
+        for i in range(emb1.shape[0]):
+            for j in range(emb1.shape[1]):
+                for k in range(emb2.shape[1]):
+                    mat[i,0,j,k] = self.cos(emb1[i,j,:],emb2[i,k,:])
+
+
+        res = self.cnn(mat)
+        print(emb1.shape,res.shape)
+
+        res = torch.cat((emb1[:,-1,:],emb2[:,-1,:],res),1)
+        print(res.shape)
+        results = self.fc(self.dropout(res))
+        loss = self.criterion(results, labels)
+
+
+
+        return results, loss
+
+    def learn_once(self,inputs,labels): # inputs = embs,lengths
+        self.opt.zero_grad()
+        results, loss = self.forward(inputs, labels)
+        loss.backward()
+        self.opt.step()
+        return loss
+
+    def predict(self,inputs,labels,perm_idx):
+        results, loss = self.forward(inputs, labels)
+        _, unperm_idx = perm_idx.sort(0)
+        results = results[unperm_idx]
+        return results.data.cpu().numpy()
+
 
 
 def eval(x,y,maxlen,model):

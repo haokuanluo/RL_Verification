@@ -5,7 +5,7 @@ from model import CNN1
 from model import train
 from inspector import gettuple
 from embed import embed_and_pad
-from model import SeqLSTMClassify
+from model import SeqLSTMClassify,LSTMCNN
 
 def trial():
     a = "I am the best soccer player in the world"
@@ -14,9 +14,9 @@ def trial():
     maxlen = 50
     sent = [a, b]
     emb = embed_sentence(sent, maxlen)
-
+    print(emb[0].shape,emb[1].shape)
     sim = cosine_similarity(emb[0], emb[1])
-
+    print(sim.shape)
     X = []
     Y = []
     X.append(sim)
@@ -63,7 +63,7 @@ def lstm():
     }
     BATCH_SIZE = 1
 
-    model = SeqLSTMClassify(args, outdim)
+    model = LSTMCNN(args, outdim)#SeqLSTMClassify(args, outdim)
 
     for i in range(0, len(X), nbatch):
         up = min(len(X), i + nbatch)
@@ -81,5 +81,6 @@ def lstm():
 
 
 if __name__ == '__main__':
+    #trial() # (a,b) (c,b) = (a,c)
     lstm()
 
